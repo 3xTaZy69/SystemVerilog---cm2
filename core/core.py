@@ -254,20 +254,31 @@ def logic(start_pos: list[int], end_pos: list[int], width: int):
     return blocks
 
 r_adders = 0
-def ripple_adder(start_pos: list[int], width: int):
+def ripple_adder(start_pos: list[int], width: int, type: str):
+    """
+    type: add for adding, sub for subtracting 
+    """
     global r_adders, scene_connections, scene_blocks
 
     blocks = []
     connections = []
 
     for bit in range(width):
-        x = start_pos[0]+bit*2
+        x = start_pos[0]+bit*(-2)
         y = start_pos[1]
         z = start_pos[2]
 
         blocks.append(block(15, str(x), str(y), str(z), [], f"r_adder_A_{bit}_{r_adders}"))
-        blocks.append(block(15, str(x+1), str(y), str(z), [], f"r_adder_B_{bit}_{r_adders}"))
-        blocks.append(block(15, str(x+1), str(y), str(z+1), [], f"r_adder_Cin_{bit}_{r_adders}"))
+        if type == "add":
+            blocks.append(block(15, str(x+1), str(y), str(z), [], f"r_adder_B_{bit}_{r_adders}"))
+            blocks.append(block(15, str(x+1), str(y), str(z+1), [], f"r_adder_Cin_{bit}_{r_adders}"))
+        elif type == "sub": 
+            blocks.append(block(0, str(x+1), str(y), str(z), [], f"r_adder_B_{bit}_{r_adders}"))
+            if bit == 0:
+                blocks.append(block(0, str(x+1), str(y), str(z+1), [], f"r_adder_Cin_{bit}_{r_adders}"))
+            else: 
+                blocks.append(block(15, str(x+1), str(y), str(z+1), [], f"r_adder_Cin_{bit}_{r_adders}"))
+            
         blocks.append(block(3, str(x), str(y), str(z-1), [], f"r_adder_XOR0_{bit}_{r_adders}"))
         blocks.append(block(1, str(x), str(y), str(z-2), [], f"r_adder_AND0_{bit}_{r_adders}"))
         blocks.append(block(15, str(x), str(y), str(z-3), [], f"r_adder_Cout_{bit}_{r_adders}"))
@@ -297,4 +308,7 @@ def ripple_adder(start_pos: list[int], width: int):
 
     return [b for b in blocks if (b.world_name.startswith("r_adder_A_") or b.world_name.startswith("r_adder_B_") or b.world_name.startswith("r_adder_C_"))]
 
+def mux(inputs: list[block], output: list[block], select: list[block], position: list[int]):
+    sel_len = len(inputs)
+    
 build_scene()
