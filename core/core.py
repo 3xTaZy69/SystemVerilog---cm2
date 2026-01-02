@@ -1,4 +1,5 @@
 import pyperclip
+import math
 
 scene_blocks = {}
 scene_connections = []
@@ -171,12 +172,14 @@ def build_scene():
     builds scene
     """
     global scene_blocks, scene_connections, output_code_connections, output_code_blocks, end_time
-
     for connection in scene_connections:
-        output_code_connections += [str(index+1) for index, block_ in scene_blocks.items() if block_.world_name == connection.src][0]
-        output_code_connections += ","
-        output_code_connections += [str(index+1) for index, block_ in scene_blocks.items() if block_.world_name == connection.dst][0]
-        output_code_connections += ";"
+        try:
+            output_code_connections += [str(index+1) for index, block_ in scene_blocks.items() if block_.world_name == connection.src][0]
+            output_code_connections += ","
+            output_code_connections += [str(index+1) for index, block_ in scene_blocks.items() if block_.world_name == connection.dst][0]
+            output_code_connections += ";"
+        except:
+            raise NameError(connection.src, connection.dst)
     
     for index, block_ in scene_blocks.items():
         output_code_blocks += block_.final_look
@@ -280,7 +283,7 @@ def logic(start_pos: list[int], end_pos: list[int], width: int, block_type: int)
 
     for b in range(width):
         pos = [start_pos[i] + step[i]*b for i in range(3)]
-        blocks.append(block(block_type, pos[0], pos[1], pos[2], [], f"logic{b}_{logics}"))
+        blocks.append(block(block_type, pos[0], pos[1], pos[2], [], f"logic_{b}_{logics}"))
 
     logics += 1
     return blocks
@@ -342,102 +345,75 @@ def ripple_adder(start_pos: list[int], width: int, type: str):
     return [b for b in blocks if (b.world_name.startswith("r_adder_A_") or b.world_name.startswith("r_adder_B_") or b.world_name.startswith("r_adder_C_"))]
 
 mux_i_count = 0
-def mux_i(inputs: list, select: list[block], position: list[int], input_width: int):
-    inputs = [[inputs[0], inputs[1]]] + [[x] for x in inputs[2:]]
+def mux_i(inputs: list, inputs_width: int, position: list[int]):
     """
-    dynamic generation of muxes with inputs for selection
+    dynamic generation of muxes with choises of inputs
     """
-    global mux_i_count, logics
-    sel_len = len(inputs)
-    mux_count = sel_len - 1 
-    blocks = []
-    connections = []
+    x = position[0]
     y = position[1]
     z = position[2]
-    output_logic = logic([position[0],0,-4], [position[0]+input_width,0,-4], input_width, 15)
-    for m in range(mux_count):
-        x = position[0]+input_width*m
-        blocks.append(block(15, x, y, z, [], f"mux_i_sel_{m}_{mux_i_count}"))
-        blocks.append(block(0, x+1, y, z, [], f"mux_i_!sel_{m}_{mux_i_count}"))
-        [blocks.append(b) for b in logic([x,y,z-1],[x+input_width,y,z-1],input_width,1)]
-        [blocks.append(b) for b in logic([x,y,z-2],[x+input_width,y,z-2],input_width,1)]
-        [blocks.append(b) for b in logic([x,y,z-3],[x+input_width,y,z-3],input_width,15)]
+    max_index = len(inputs)
+    sel_len = math.ceil(math.log(max_index, 2))
+    select = logic([x, y, z], [x+sel_len-1, y, z], sel_len, 15)
+    nselect = logic([x, y, z+1], [x+sel_len, y, z+1], sel_len, 0)
+    for i in range(sel_len):
+        scene_connections.append(scene_connection(select[i].world_name, nselect[i].world_name))
+    output_logic = logic([x, y, z+3], [x+inputs_width, y, z+3], inputs_width, 15)
 
-        connections.append(scene_connection(f"mux_i_sel_{m}_{mux_i_count}", f"mux_i_!sel_{m}_{mux_i_count}"))
-        connections.append(scene_connection(select[m].world_name, f"mux_I_sel_{m}_{mux_i_count}"))
-        if m == 0:
-            for c in range(input_width):
-                connections.append(scene_connection(f"mux_i_sel_{m}_{mux_i_count}", f"logic{c}_{logics-2}"))
-                connections.append(scene_connection(f"mux_i_!sel_{m}_{mux_i_count}", f"logic{c}_{logics-1}"))
-                connections.append(scene_connection(f"logic{c}_{logics-2}", f"logic{c}_{logics}"))
-                connections.append(scene_connection(f"logic{c}_{logics-1}", f"logic{c}_{logics}"))
-                connections.append(scene_connection(inputs[m][0][c].world_name, f"logic{c}_{logics-2}"))
-                connections.append(scene_connection(inputs[m][1][c].world_name, f"logic{c}_{logics-1}"))
-                connections.append(scene_connection(f"logic{c}_{logics}", output_logic[c].world_name))
-        else:
-            for c in range(input_width):
-                connections.append(scene_connection(f"mux_i_sel_{m}_{mux_i_count}", f"logic{c}_{logics-2}"))
-                connections.append(scene_connection(f"mux_i_!sel_{m}_{mux_i_count}", f"logic{c}_{logics-1}"))
-                connections.append(scene_connection(f"logic{c}_{logics-2}", f"logic{c}_{logics}"))
-                connections.append(scene_connection(f"logic{c}_{logics-1}", f"logic{c}_{logics}"))
-                connections.append(scene_connection(inputs[m][0][c].world_name, f"logic{c}_{logics-2}"))
-                connections.append(scene_connection(f"logic{c}_{logics-3}", f"logic{c}_{logics-1}"))
-                connections.append(scene_connection(f"logic{c}_{logics}", output_logic[c].world_name))
-        return output_logic
+    for index, input_ in enumerate(inputs):
+        b_index = bin(index)[2:].zfill(sel_len)
+        x = position[0]+index*inputs_width+sel_len
+        a_input = logic([x, y, z+2], [x+inputs_width, y, z+2], inputs_width, 1)
+        for index_, bit in enumerate(a_input):
+            for i, n in enumerate(b_index):
+                if n == "0":
+                    scene_connections.append(scene_connection(nselect[i].world_name, bit.world_name))
+                else:
+                    scene_connections.append(scene_connection(select[i].world_name, bit.world_name))
+            scene_connections.append(scene_connection(bit.world_name, output_logic[index_].world_name))
+            scene_connections.append(scene_connection(input_[index_].world_name, bit.world_name))
+    mux_i_count += 1
+    return select, output_logic
 
 mux_c_count = 0
-def mux_c(inputs: list, output: list[block], select: list[block], position: list[int], input_width: int):
-    inputs = [[inputs[0], inputs[1]]] + [[x] for x in inputs[2:]]
+def mux_c(inputs: list, inputs_width: int, position: list[int]):
     """
-    dynamic generation of muxes with const inputs for selection
+    dynamic generation of decoding muxes with const choises
     """
-    global mux_c_count, logics
-    sel_len = len(inputs)
-    mux_count = sel_len - 1 
-    blocks = []
-    connections = []
+    x = position[0]
     y = position[1]
     z = position[2]
+    max_index = len(inputs)
+    sel_len = math.ceil(math.log(max_index, 2))
+    select = logic([x, y, z], [x+sel_len-1, y, z], sel_len, 15)
+    nselect = logic([x, y, z+1], [x+sel_len, y, z+1], sel_len, 0)
+    for i in range(sel_len):
+        scene_connections.append(scene_connection(select[i].world_name, nselect[i].world_name))
+    output_logic = logic([x, y, z+3], [x+inputs_width, y, z+3], inputs_width, 15)
 
-    for m in range(mux_count):
-        x = position[0]+input_width*m
-        output_logic = logic([position[0],0,-4], [position[0]+input_width,0,-4], input_width, 15)
-        blocks.append(block(15, x, y, z, [], f"mux_c_sel_{m}_{mux_c_count}"))
-        blocks.append(block(0, x+1, y, z, [], f"mux_c_!sel_{m}_{mux_c_count}"))
-        if m == 0:
-            for index, value in enumerate(inputs[m][0]):
-                if value == "0":
-                    blocks.append(block(15, x+index, 0, z-1, [], "mux_c_0_{m}_{mux_c_count}"))
-                elif value == "1":
-                    blocks.append(block(0, x+index, 0, z-1, [], "mux_c_1_{m}_{mux_c_count}"))
-            [blocks.append(b) for b in logic([x,y,z-2],[x+input_width,y,z-2],input_width,1)]
-            for index, value in enumerate(inputs[m][1]):
-                if value == "0":
-                    blocks.append(block(15, x+index, 0, z-3, [], "mux_c_0_{m}_{mux_c_count}"))
-                elif value == "1":
-                    blocks.append(block(0, x+index, 0, z-3, [], "mux_c_1_{m}_{mux_c_count}"))
-            [blocks.append(b) for b in logic([x,y,z-4],[x+input_width,y,z-4],input_width,1)]
-        else:
-            for index, value in enumerate(inputs[m][0]):
-                if value == "0":
-                    blocks.append(block(15, x+index, 0, z-1, [], "mux_c_0_{m}_{mux_c_count}"))
-                elif value == "1":
-                    blocks.append(block(0, x+index, 0, z-1, [], "mux_c_1_{m}_{mux_c_count}"))
-            [blocks.append(b) for b in logic([x,y,z-2],[x+input_width,y,z-2],input_width,1)]
-            [blocks.append(b) for b in logic([x,y,z-3],[x+input_width,y,z-3],input_width,1)]
+    inputs_ = []
+    for i, input_ in enumerate(inputs):
+        inputs_.append([])
+        for ibit, bit in enumerate(input_):
+            x = position[0]+i*inputs_width+sel_len+ibit
+            if bit == "0":
+                inputs_[i].append(block(0, x, y, z-1, [], f"inputs__{bit}_{i}_{mux_c_count}"))
+            else:
+                inputs_[i].append(block(15, x, y, z-1, [], f"inputs__{bit}_{i}_{mux_c_count}"))
 
-        
-
-        
-
-        scene_connections.append(scene_connection(f"mux_c_sel_{m}_{mux_c_count}", f"mux_c_!sel_{m}_{mux_c_count}"))
-        scene_connections.append(scene_connection(select[m].world_name, f"mux_c_sel_{m}_{mux_c_count}"))
-        if m == 0:
-            for c in range(input_width):
-                scene_connections.append(scene_connection())
-        else:
-            for c in range(input_width):
-                pass
-
+    for index, input_ in enumerate(inputs_):
+        b_index = bin(index)[2:].zfill(sel_len)
+        x = position[0]+index*inputs_width+sel_len
+        a_input = logic([x, y, z+2], [x+inputs_width, y, z+2], inputs_width, 1)
+        for index_, bit in enumerate(a_input):
+            for i, n in enumerate(b_index):
+                if n == "0":
+                    scene_connections.append(scene_connection(nselect[i].world_name, bit.world_name))
+                else:
+                    scene_connections.append(scene_connection(select[i].world_name, bit.world_name))
+            scene_connections.append(scene_connection(bit.world_name, output_logic[index_].world_name))
+            scene_connections.append(scene_connection(input_[index_].world_name, bit.world_name))
+    mux_c_count += 1
+    return select, output_logic
 
 build_scene()
