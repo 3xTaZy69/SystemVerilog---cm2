@@ -1,14 +1,21 @@
 import pyperclip
 import math
+conf = {
+    "grid_type": "cube",
+    "extra": "",
+    "CopyOrPrint": "print"
+}
 
-scene_blocks = {}
+
+scene_blocks_i = {}
+scene_blocks_n = []
 scene_connections = []
 d_ff_count = 0
 class block:
     """
     block
     """
-    def __init__(self, index: int, x: int, y: int, z: int, params: list[int], name: str):
+    def __init__(self, index: int, x: int, y: int, z: int, params: list[int], name: str, not_add_block_to_blocks=None, no_formatting=False):
         self.index = str(index)
         self.x = str(x)
         self.y = str(y)
@@ -16,17 +23,24 @@ class block:
         self.params = [str(i) for i in params]
         self.world_name = name
         self.calculate_final_look()
-        self.add_to_blocks()
+        self.no_formatting = no_formatting
+        if not not_add_block_to_blocks:
+            self.add_to_blocks()
     
     def add_to_blocks(self):
-        global scene_blocks
-        scene_blocks[len(scene_blocks)] = self
+        global scene_blocks_n, scene_blocks_i, blocks_not_to_format
+        scene_blocks_i[len(scene_blocks_i)] = self
+        scene_blocks_n.append(self)
+        if self.no_formatting:
+            blocks_not_to_format.append(self)
+            
 
     def calculate_final_look(self):
         if not self.params:
             self.final_look = ",".join([self.index, "0", self.x, self.y, self.z])+",;"
         else:
             self.final_look = ",".join([self.index, "0", self.x, self.y, self.z, "+".join(self.params)])+";"
+
 
 
 
@@ -167,40 +181,192 @@ class scene_connection:
 output_code_blocks = ""
 output_code_connections = ""
 
-def build_scene():
+def build_scene_no_formatting():
     """
     builds scene
     """
     global scene_blocks, scene_connections, output_code_connections, output_code_blocks, end_time
     for connection in scene_connections:
         try:
-            output_code_connections += [str(index+1) for index, block_ in scene_blocks.items() if block_.world_name == connection.src][0]
+            output_code_connections += str(scene_blocks_n.index(connection.src) + 1)
             output_code_connections += ","
-            output_code_connections += [str(index+1) for index, block_ in scene_blocks.items() if block_.world_name == connection.dst][0]
+            output_code_connections += str(scene_blocks_n.index(connection.dst) + 1)
             output_code_connections += ";"
         except:
             raise NameError(connection.src, connection.dst)
-    
-    for index, block_ in scene_blocks.items():
+        
+    for index, block_ in scene_blocks_i.items():
         output_code_blocks += block_.final_look
 
-    copy_or_print = input("Copy or print: ").lower()
+    copy_or_print = conf["CopyOrPrint"]
     if copy_or_print == "print":
         print(output_code_blocks[:-1]+"?"+output_code_connections[:-1]+"??")
     else:
         pyperclip.copy(output_code_blocks[:-1]+"?"+output_code_connections[:-1]+"??")
 
-class always_relay_on:
+blocks_not_to_format = []
+not_formatted_code = ""
+def build_scene():
+    """
+    builds scene
+    """
+    global scene_blocks_n, scene_connections, output_code_connections, output_code_blocks, end_time, blocks_not_to_format, not_formatted_code
+    blocks_not_to_format_names = [b.world_name for b in blocks_not_to_format]
+    scene_blocks_n = [b for b in scene_blocks_n if b not in blocks_not_to_format]
+    scene_blocks_n = blocks_not_to_format+scene_blocks_n
+    scene_blocks_n_names = [b.world_name for b in scene_blocks_n]
+    for connection in scene_connections:
+        try:
+            output_code_connections += str(scene_blocks_n_names.index(connection.src) + 1)
+            output_code_connections += ","
+            output_code_connections += str(scene_blocks_n_names.index(connection.dst) + 1)
+            output_code_connections += ";"
+        except:
+            raise NameError(connection.src, connection.dst)
+
+    for block_ in scene_blocks_n:
+        if block_.world_name not in blocks_not_to_format_names:
+            output_code_blocks += block_.final_look
+        else:
+            not_formatted_code += block_.final_look
+
+    def calculate_grid_sizes(code, grid_type, extra=None):
+        """
+        code: input_blocks string
+        grid_type: 
+            'flat_square'
+            'flat_ratio'
+            'wall'
+            'wall_ratio'
+            'cube'
+            'custom'
+        extra:
+            float for ratio
+            list [xs, ys, zs] for custom
+        """
+
+        blocks = [b for b in code.split("?")[0].split(";") if b]
+        N = len(blocks)
+
+        if grid_type == 'flat_square':
+            xs = math.ceil(math.sqrt(N))
+            ys = 1
+            zs = math.ceil(N / xs)
+            return xs, ys, zs
+
+        elif grid_type == 'flat_ratio':
+            if extra is None:
+                raise ValueError("flat_ratio requires a ratio")
+            ratio = float(extra)
+            xs = math.ceil(math.sqrt(N * ratio))
+            ys = 1
+            zs = math.ceil(N / xs)
+            return xs, ys, zs
+
+        elif grid_type == 'wall':
+            xs = math.ceil(math.sqrt(N))
+            ys = math.ceil(N / xs)
+            zs = 1
+            return xs, ys, zs
+
+        elif grid_type == 'wall_ratio':
+            if extra is None:
+                raise ValueError("wall_ratio requires a ratio")
+            ratio = float(extra)
+            xs = math.ceil(math.sqrt(N / ratio))
+            ys = math.ceil(N / xs)
+            zs = 1
+            return xs, ys, zs
+
+        elif grid_type == 'cube':
+            s = math.ceil(N ** (1/3))
+            return s, s, s
+
+        elif grid_type == 'custom': 
+            
+            return [int(s) for s in extra] 
+ 
+        else:
+            raise ValueError(f"Unknown grid_type: {grid_type}")
+
+    def format_block(grid_sizes, code):
+        xg = []
+        yg = []
+        zg = []
+        for y in range(grid_sizes[1]):
+            for z in range(grid_sizes[2]):
+                for x in range(grid_sizes[0]):
+                    xg.append('')
+                zg.append(xg)
+                xg = []
+            yg.append(zg)
+            zg = []
+
+        grid = yg
+        input_blocks = code
+        blocks = input_blocks.split("?")[0].split(";")
+        b_blocks = []
+        for i, b in enumerate(blocks):
+            b = b.split(",")
+            index = b[0]
+            x = b[2]
+            y = b[3]
+            z = b[4]
+            params = []
+            if len(b) > 5:
+                params = b[5].split("+")
+            b_blocks.append(block(index, x, y, z, params, str(i), True))
+
+        connections = input_blocks.split("?")[1]
+        xs = grid_sizes[0]
+        ys = grid_sizes[1]
+        zs = grid_sizes[2]
+        for yy, y in enumerate(grid):
+            for zz, z in enumerate(y):
+                for xx, x in enumerate(z):
+                    index = xx+zz*xs+yy*zs*xs
+                    if index >= len(blocks):
+                        continue
+                    b_blocks[index].x = str(xx)
+                    b_blocks[index].y = str(yy)
+                    b_blocks[index].z = str(zz)
+                    b_blocks[index].calculate_final_look()
+        return "".join([b.final_look for b in b_blocks])[:-1]+"?"+connections+"??"
+        
+    """grid_type: 
+            'flat_square'
+            'flat_ratio'
+            'wall'
+            'wall_ratio'
+            'cube'
+            'custom'
+        extra:
+            float for ratio (for *_ratio)
+            tuple (x, y, z) for custom
+          """
+    grid_type = conf["grid_type"]+conf["extra"]
+    if len(grid_type.split()) > 1:
+        grid_sizes = calculate_grid_sizes(output_code_blocks[:-1]+"?"+output_code_connections[:-1]+"??", grid_type.split()[0], grid_type.split()[1:len(grid_type.split())] )
+    else:
+        grid_sizes = calculate_grid_sizes(output_code_blocks[:-1]+"?"+output_code_connections[:-1]+"??", grid_type.split()[0] )
+    blocks = not_formatted_code+format_block(grid_sizes, output_code_blocks[:-1]+"?"+output_code_connections[:-1]+"??")
+    copy_or_print = conf["CopyOrPrint"]
+    if copy_or_print == "print":
+        print(blocks)
+    else:
+        pyperclip.copy(blocks)
+
+
+def always_relay_on(block_to_relay_on, d_ff, output_block):
     """
     makes a d flip flop relay on some block like clock etc.
     """
-    def __init__(self, block_to_relay_on, d_ff, output_block):
-        if d_ff.type == "posedge":
-            scene_connections.append(scene_connection(block_to_relay_on.world_name, f"d_ff_and{d_ff.index}"))
-            scene_connections.append(scene_connection(f"d_ff_t_ff{d_ff.index}", output_block.world_name))
-        elif d_ff.type == "negedge":
-            scene_connections.append(scene_connection(block_to_relay_on.world_name, f"d_ff_inode{d_ff.index}"))
-            scene_connections.append(scene_connection(f"d_ff_2node{d_ff.index}", output_block.world_name))
+    if d_ff.type == "posedge":
+        scene_connections.append(scene_connection(block_to_relay_on.world_name, f"d_ff_and{d_ff.index}"))
+        scene_connections.append(scene_connection(f"d_ff_t_ff{d_ff.index}", output_block.world_name))
+    elif d_ff.type == "negedge":
+        scene_connections.append(scene_connection(block_to_relay_on.world_name, f"d_ff_inode{d_ff.index}"))
+        scene_connections.append(scene_connection(f"d_ff_2node{d_ff.index}", output_block.world_name))
 
 and_gate_count = 0
 def and_gate(input1, input2, position: list[int]):
@@ -273,7 +439,7 @@ def nor_gate(input1, input2, position: list[int]):
 
 
 logics = 0
-def logic(start_pos: list[int], end_pos: list[int], width: int, block_type: int):
+def logic(start_pos: list[int], end_pos: list[int], width: int, block_type: int, fixed: bool = None):
     """
     generation of busses
     """
@@ -283,7 +449,7 @@ def logic(start_pos: list[int], end_pos: list[int], width: int, block_type: int)
 
     for b in range(width):
         pos = [start_pos[i] + step[i]*b for i in range(3)]
-        blocks.append(block(block_type, pos[0], pos[1], pos[2], [], f"logic_{b}_{logics}"))
+        blocks.append(block(block_type, pos[0], pos[1], pos[2], [], f"logic_{b}_{logics}", no_formatting=fixed))
 
     logics += 1
     return blocks
@@ -346,6 +512,7 @@ def ripple_adder(start_pos: list[int], width: int, type: str):
 
 mux_i_count = 0
 def mux_i(inputs: list, inputs_width: int, position: list[int]):
+    global mux_i_count
     """
     dynamic generation of muxes with choises of inputs
     """
@@ -373,10 +540,11 @@ def mux_i(inputs: list, inputs_width: int, position: list[int]):
             scene_connections.append(scene_connection(bit.world_name, output_logic[index_].world_name))
             scene_connections.append(scene_connection(input_[index_].world_name, bit.world_name))
     mux_i_count += 1
-    return select, output_logic
+    return {"select": select, "output_logic": output_logic}
 
 mux_c_count = 0
 def mux_c(inputs: list, inputs_width: int, position: list[int]):
+    global mux_c_count
     """
     dynamic generation of decoding muxes with const choises
     """
@@ -396,7 +564,7 @@ def mux_c(inputs: list, inputs_width: int, position: list[int]):
         inputs_.append([])
         for ibit, bit in enumerate(input_):
             x = position[0]+i*inputs_width+sel_len+ibit
-            if bit == "0":
+            if bit == "1":
                 inputs_[i].append(block(0, x, y, z-1, [], f"inputs__{bit}_{i}_{mux_c_count}"))
             else:
                 inputs_[i].append(block(15, x, y, z-1, [], f"inputs__{bit}_{i}_{mux_c_count}"))
@@ -414,6 +582,115 @@ def mux_c(inputs: list, inputs_width: int, position: list[int]):
             scene_connections.append(scene_connection(bit.world_name, output_logic[index_].world_name))
             scene_connections.append(scene_connection(input_[index_].world_name, bit.world_name))
     mux_c_count += 1
-    return select, output_logic
+    return {"select": select, "output_logic": output_logic}
 
-build_scene()
+def connect_logic(logic_a: logic, logic_b: logic, order: int):
+    """
+    order: 1 for normal connection, -1 for reversed connection
+    """
+
+    if order == 1:
+        for i, block_a in enumerate(logic_a):
+            try:
+                scene_connections.append(scene_connection(block_a.world_name, logic_b[i].world_name))
+            except IndexError:
+                raise IndexError("Not matching logic widths")
+    elif order == -1:
+        for i, block_a in enumerate(logic_a):
+            try:
+                scene_connections.append(scene_connection(block_a.world_name, logic_b[len(logic_b)-i-1].world_name))
+            except IndexError:
+                raise IndexError("Not matching logic widths")
+
+def connect_adder(adder, logic_a, logic_b, logic_c):
+    """
+    connects buses with adder
+    """
+    A = [b for b in adder if b.world_name.startswith("r_adder_A_")]
+    B = [b for b in adder if b.world_name.startswith("r_adder_B_")]
+    C = [b for b in adder if b.world_name.startswith("r_adder_C_")]
+
+    for i, b in enumerate(logic_a):
+        scene_connections.append(scene_connection(b.world_name, A[i].world_name))
+    for i, b in enumerate(logic_b):
+        scene_connections.append(scene_connection(b.world_name, B[i].world_name))
+    for i, b in enumerate(logic_c):
+        scene_connections.append(scene_connection(C[i].world_name, b.world_name))
+
+def connect_mux(mux, select_logic, output_logic):
+    sel = mux["select"]
+    output = mux["output_logic"]
+
+    for i, b in enumerate(select_logic):
+        scene_connections.append(scene_connection(b.world_name, sel[i].world_name))
+    for i, b in enumerate(output):
+        scene_connections.append(scene_connection(output_logic[i].world_name, b.world_name,))
+
+const_num_count = 0
+def const_num(num: int, pos: list[int], width: int):
+    global const_num_count
+    blocks = []
+    num = bin(num)[2:].zfill(width)
+    x = pos[0]
+    y = pos[1]
+    z = pos[2]
+
+    for n in num:
+        if n == "0":
+            blocks.append(block(15, x, y, z, [], f"const_num_{x}_{const_num_count}"))
+        else:
+            blocks.append(block(0, x, y, z, [], f"const_num_{x}_{const_num_count}"))
+        x += 1
+    return blocks
+
+comparator_count = 0
+def comparator(input1: list[block], input2: list[block], width: int, pos: list[int]):
+    global comparator_count, scene_connections
+    y = pos[1]
+    z = pos[2]
+    Bigger = block(15, width, y, z, [], f"cmp_bigger_{comparator_count}")
+    Less = block(15, width, y, z+1, [], f"cmp_less_{comparator_count}")
+    Equal = block(1, width, y, z+2, [], f"cmp_equal_{comparator_count}")
+    for bit in range(width):
+        A = input1[bit]
+        B = input2[bit]
+        x = pos[0]+bit
+
+        And1 = block(1, x, y, z, [], f"cmp_and1_{bit}_{comparator_count}")
+        And2 = block(1, x, y, z+1, [], f"cmp_and2_{bit}_{comparator_count}")
+
+        Xor = block(3, x, y, z+2, [], f"cmp_xor_{bit}_{comparator_count}")
+        Nxor = block(0, x, y, z+3, [], f"cmp_nxor_{bit}_{comparator_count}")
+
+        C = block(15, x, y, z+4, [], f"cmp_c_{bit}_{comparator_count}")
+
+        Xnor = block(11, x, y, z+5, [], f"cmp_nb_{bit}_{comparator_count}")
+
+
+        scene_connections.append(scene_connection(A.world_name, Xor.world_name))
+        scene_connections.append(scene_connection(B.world_name, Xor.world_name))
+        scene_connections.append(scene_connection(A.world_name, And1.world_name))
+        scene_connections.append(scene_connection(B.world_name, And2.world_name))
+        scene_connections.append(scene_connection(A.world_name, Xnor.world_name))
+        scene_connections.append(scene_connection(B.world_name, Xnor.world_name))
+        scene_connections.append(scene_connection(C.world_name, And1.world_name))
+        scene_connections.append(scene_connection(C.world_name, And2.world_name))
+        scene_connections.append(scene_connection(Xor.world_name, Nxor.world_name))
+        scene_connections.append(scene_connection(Xnor.world_name, Equal.world_name))
+        scene_connections.append(scene_connection(And1.world_name, Bigger.world_name))
+        scene_connections.append(scene_connection(And2.world_name, Less.world_name))
+        for c in range(width-bit-1):
+            scene_connections.append(scene_connection(Nxor.world_name, f"cmp_c_{bit+c+1}"))
+    return Bigger, Equal, Less
+############################################################################################################
+
+
+
+############################################################################################################
+
+
+f = input("format? - y/n: ").lower()
+if f == "y":
+    build_scene()
+elif f == "n":
+    build_scene_no_formatting()
